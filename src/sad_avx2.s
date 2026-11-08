@@ -5,8 +5,10 @@
 .intel_syntax noprefix
 .text
 .globl sad_avx2_asm
+.globl _sad_avx2_asm
 
 sad_avx2_asm:
+_sad_avx2_asm:
     vpxor ymm0, ymm0, ymm0
     xor r10, r10
     mov r9, r8

@@ -1,0 +1,10 @@
+Source: Wikimedia Commons, CC BY-SA 4.0.
+File: How to create a Wikimedia Commons account, screen recording tutorial.
+Already AV1 at about 1080 kb/s, 1920x1080, 60 fps, 3 minutes. Scores use that file as the reference.
+Quiet pairs: 97.7%. Cuts: 84. Pictures long enough to sample: 72.
+Eight frames is about 0.13 s at 60 fps.
+Spread check, one strength: CRF 28, spread vote 90.25, first-page vote 94.86, 109th-worst 79.58 at frame 2548, 3070149 bytes
+First settled page, one strength: CRF 32, spread vote 84.86, first-page vote 91.10, 109th-worst 71.19 at frame 2345, 2442515 bytes
+Per picture: CRF 28 on 67 pictures, CRF 32 on 5 pictures
+Zoned file: 3108718 bytes. Settled samples under 90 after zoning: 21 of 72.
+Zoned 109th-worst 79.60 at frame 2548.

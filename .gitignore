@@ -5,5 +5,20 @@
 *.avi
 *.mov
 *.raw
+*.exe
+src/detect
+src/time_kernel
+__pycache__/
+*.pyc
+
+# Markdown files
 *.md
 !README.md
+!results/REPORT.md
+
+# 1. Paper documents and build artifacts (ignored)
+paper.*
+*.docx
+*.pdf
+*.html
+src/build_paper_doc.py

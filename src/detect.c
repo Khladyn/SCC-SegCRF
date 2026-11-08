@@ -6,9 +6,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
+#else
+#include <time.h>
+#endif
 
 static uint64_t sad_scalar(const uint8_t *a, const uint8_t *b, size_t n) {
     uint64_t sum = 0;
@@ -20,6 +24,9 @@ static uint64_t sad_scalar(const uint8_t *a, const uint8_t *b, size_t n) {
     return sum;
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((ms_abi))
+#endif
 uint64_t sad_avx2_asm(const uint8_t *a, const uint8_t *b, size_t n);
 
 static uint64_t sad_avx2(const uint8_t *a, const uint8_t *b, size_t n) {
@@ -41,11 +48,20 @@ static uint64_t sad_avx2(const uint8_t *a, const uint8_t *b, size_t n) {
     return sum;
 }
 
-static double seconds_since(LARGE_INTEGER start, LARGE_INTEGER freq) {
-    LARGE_INTEGER now;
+#ifdef _WIN32
+static double now_sec(void) {
+    LARGE_INTEGER now, freq;
+    QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&now);
-    return (double)(now.QuadPart - start.QuadPart) / (double)freq.QuadPart;
+    return (double)now.QuadPart / (double)freq.QuadPart;
 }
+#else
+static double now_sec(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+#endif
 
 int main(int argc, char **argv) {
     int width;
@@ -58,7 +74,7 @@ int main(int argc, char **argv) {
     int frame = 0;
     int mismatches = 0;
     int above = 0;
-    LARGE_INTEGER freq, t0;
+    double t0;
     double scalar_sec = 0.0;
     double avx_sec = 0.0;
     double asm_sec = 0.0;
@@ -76,7 +92,9 @@ int main(int argc, char **argv) {
     npix = (size_t)width * (size_t)height;
     limit = 2ull * (uint64_t)npix;
     if (strcmp(argv[3], "-") == 0) {
+#ifdef _WIN32
         _setmode(_fileno(stdin), _O_BINARY);
+#endif
         in = stdin;
     } else {
         in = fopen(argv[3], "rb");
@@ -95,7 +113,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "need at least one frame\n");
         return 2;
     }
-    QueryPerformanceFrequency(&freq);
     printf("frame,sad,above\n");
     while (fread(curr, 1, npix, in) == npix) {
         uint64_t scalar_sad;
@@ -103,15 +120,15 @@ int main(int argc, char **argv) {
         uint64_t asm_sad;
         int flag;
         frame++;
-        QueryPerformanceCounter(&t0);
+        t0 = now_sec();
         scalar_sad = sad_scalar(prev, curr, npix);
-        scalar_sec += seconds_since(t0, freq);
-        QueryPerformanceCounter(&t0);
+        scalar_sec += now_sec() - t0;
+        t0 = now_sec();
         avx_sad = sad_avx2(prev, curr, npix);
-        avx_sec += seconds_since(t0, freq);
-        QueryPerformanceCounter(&t0);
+        avx_sec += now_sec() - t0;
+        t0 = now_sec();
         asm_sad = sad_avx2_asm(prev, curr, npix);
-        asm_sec += seconds_since(t0, freq);
+        asm_sec += now_sec() - t0;
         if (scalar_sad != avx_sad || scalar_sad != asm_sad) {
             mismatches++;
         }

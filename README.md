@@ -1,132 +1,113 @@
-# Cut-Driven Frame Sampling and Per-Segment CRF Selection for Screen-Content Video
+# Cut-Driven Settled-Frame Sampling and Per-Segment CRF Zoning for Screen-Content Video
+
+**Authors:** Juan Miguel Miranda, Jean Khladyn Stefanie Abarquez, and Kimberly Klaire Gamboa  
+**Department of Computer Technology, De La Salle University**  
+*Advanced Computer Architecture (CSC612M) Research Project / QoMEX Submission*  
 
 ## Overview and Core Idea
 
-Screen recordings (such as lecture captures, slide presentations, and software tutorials) usually consist of long static stretches interrupted by brief, high-detail text slides. In our study, a 30-second clip (900 frames at 30 fps) mostly shows a simple slide, with a dense text page appearing for only 20 frames (about two-thirds of a second).
+Screen recordings such as lecture presentations, code tutorials, and software walk-throughs consist mostly of static images interrupted by short bursts of dense text. In our study clips, a 30-second video (900 frames at 30 fps) shows a simple background slide for most of the duration, with a dense text slide appearing for only 20 frames (about 0.67 seconds).
 
-When compressing a video with `x264`, we must select a Constant Rate Factor (CRF) to control compression strength:
-- **Higher CRF (stronger compression):** Produces a smaller file, but fine text becomes blurry and unreadable.
-- **Lower CRF (gentler compression):** Produces a larger file, but keeps fine text sharp.
+When compressing video, we select a Constant Rate Factor (CRF):
+- Higher CRF (stronger compression): Produces smaller files, but text becomes blurry and unreadable.
+- Lower CRF (gentler compression): Produces larger files, but preserves crisp text readability.
 
-Scoring all 900 frames with VMAF at every candidate CRF is computationally expensive. A common fast shortcut is to evaluate only **8 sample frames (8 spot checks)** across the 900-frame clip and pick the highest CRF where all 8 frames score at least VMAF 90.
+Measuring full-reference VMAF across all 900 frames at every candidate CRF is slow. Industry tools (such as `ab-av1` and FFmpeg `libvmaf:n_subsample`) take a fast shortcut: they inspect only 8 sample frames across the video and pick the highest CRF where all 8 frames score at least VMAF 90.
 
 ```mermaid
 flowchart LR
-    A["Frame 56\nEasy Slide (Checked)"] --> B["Frame 100..119\nDense Text Slide (Missed)"]
-    B --> C["Frame 168\nEasy Slide (Checked)"]
-    C --> D["Result:\nHarsh CRF Chosen, Text Ruined"]
+    A["Frame 56\nEasy Slide (Sampled)"] --> B["Frame 440..459\nDense Text Slide (Missed)"]
+    B --> C["Frame 506\nEasy Slide (Sampled)"]
+    C --> D["Result:\nHarsh CRF Selected, Text Blurs"]
 ```
 
 ### Why Standard Spot Checks Fail
 
-1. **Evenly Spaced Sampling (Old Baseline):** Picks 8 frames at equal intervals across the 900-frame clip (frames 56, 168, 281, 393, 506, 618, 731, and 843). Because the 8 samples sit 112 frames apart, a 20-frame text slide falls completely between two samples. All 8 spot checks land on the easy background slide, tricking the selector into picking a harsh CRF that ruins the text.
-2. **Cut-Driven Settled Sampling (Our Approach):** Instead of sampling blindly, we first run a fast frame-difference scanner to detect the exact frame where the screen changes. We wait 8 frames (about 0.25 seconds) for the new slide to settle, then take our 8 spot checks directly from that new slide (`cut+8 .. cut+15`). Because the 8 spot checks now land on the dense text, the selector chooses a gentler CRF that preserves text readability.
-3. **Cut-Driven Per-Segment Zoning (`x264 --zones`):** On videos with multiple slide changes, applying a gentle CRF to the entire file wastes bits on blank slides. Using our detected cut boundaries, we assign each segment its own minimum-passing CRF in a single `x264 --zones` encode, keeping text sharp while reducing overall file size.
+1. **Evenly Spaced Uniform Sampling (Industry Baseline):** Places 8 samples 112 frames apart. A 20-frame text slide falls between sample points and is missed 100% of the time. The encoder selects an overly aggressive CRF that degrades the text.
+2. **Settled Cut-Driven Sampling (Our Approach):** We first run a fast AVX2 assembly scanner to find the exact frame where the screen changes. We wait 8 frames (about 0.25 seconds) for the new slide to settle, then take our 8 samples directly from the text hold (`cut+8 .. cut+15`). This detects the text complexity and picks a safe CRF.
+3. **Cut-Driven Per-Segment Zoning (`x264 --zones`):** Applying a safe CRF to the entire file wastes bits on simple slides. Using our detected cut timestamps, we assign each segment its own minimum-passing CRF in a single encode, keeping text sharp while shrinking file size.
 
 ---
 
-## End-to-End Pipeline
-
-```mermaid
-flowchart TD
-    subgraph Stage1["1. Fast Cut Detection (Course Track)"]
-        A["Input Video\n(900 Frames, 8-bit Luma)"] --> B["AVX2 SAD Kernel (src/sad_avx2.s)\nCompares 32 pixels at once\nFlags cut when mean diff > 2"]
-    end
-    subgraph Stage2["2. 8-Frame Spot Check (Paper Track)"]
-        B --> C["Wait 8 Frames After Cut\nSample 8 Settled Frames (cut+8..cut+15)"]
-        C --> D["Pick Highest CRF\nwith min(VMAF) >= 90"]
-    end
-    subgraph Stage3["3. Final Encoding"]
-        D --> E1["Single-Cut Video:\nApply Chosen Global CRF"]
-        D --> E2["Multi-Cut Video:\nApply Per-Slide CRF via x264 --zones"]
-    end
-```
-
----
-
-## Repository Guide
-
-All active source code lives inside `src/`. The remaining folders store pre-computed inputs (`data/`), generated output tables (`results/`), and cited literature (`references/`).
+## Complete Project Structure
 
 ```mermaid
 flowchart LR
-    DATA["data/\n(Slide PNGs & cached VMAF logs)"] --> SRC["src/\n(C, AVX2 Assembly & Python scripts)"]
-    SRC --> RES["results/\n(Final CSV tables & summary report)"]
+    DATA["data/\n(1080p & 576p clips, real tutorials)"] --> SRC["src/\n(AVX2 assembly, C, Python drivers)"]
+    SRC --> RES["results/\n(Verified CSV tables & reports)"]
+    SRC --> DOCS["paper.docx & paper.pdf\n(Full research paper)"]
 ```
 
 ### 1. `src/` (Active Codebase)
+- [`src/sad_scalar.c`](src/sad_scalar.c): Baseline C pixel-by-pixel Sum of Absolute Differences.
+- [`src/sad_avx2.s`](src/sad_avx2.s): Hand-written x86-64 AVX2 assembly using `vpsadbw` (32 pixels per instruction).
+- [`src/detect.c`](src/detect.c): Streams consecutive frame pairs through both kernels, verifies zero mismatches, and outputs cut frame indices.
+- [`src/time_kernel.c`](src/time_kernel.c): Measures kernel execution times across in-memory frame pairs.
+- [`src/config.py`](src/config.py): Discovers FFmpeg, GCC, and system fonts across macOS and Windows.
+- [`src/run_timing.py`](src/run_timing.py): Runs kernel timing benchmarks and writes `results/1_kernel_timing.csv`.
+- [`src/run_study.py`](src/run_study.py): Evaluates selector rules and zoning across the 1080p and 576p suites.
+- [`src/run_codecs.py`](src/run_codecs.py): Compares selector behavior across H.264 (`x264`), HEVC (`x265`), and AV1 (`SVT-AV1`).
+- [`src/run_real_clips.py`](src/run_real_clips.py): Evaluates 5 unscripted real-world Wikimedia tutorials totaling 30,695 frames.
+- [`src/build_paper_doc.py`](src/build_paper_doc.py): Generates `paper.docx` and `paper.pdf` directly on the machine.
 
-**C and x86-64 AVX2 Assembly (Scene-Cut Detector and Benchmark)**
-- [`src/sad_scalar.c`](src/sad_scalar.c): Baseline C implementation that computes the Sum of Absolute Differences (SAD) between consecutive frames one pixel at a time.
-- [`src/sad_avx2.s`](src/sad_avx2.s): Hand-written x86-64 AVX2 assembly implementation using `vpsadbw` to process 32 pixels per instruction, followed by a scalar tail loop.
-- [`src/detect.c`](src/detect.c): Streams consecutive frame pairs through both `sad_scalar` and `sad_avx2`, verifies zero mismatches between them, and outputs the detected scene-cut frame indices.
-- [`src/time_kernel.c`](src/time_kernel.c): Uses `QueryPerformanceCounter` to time 5 in-memory passes of the scalar C, compiler auto-vectorized C, and hand-written AVX2 assembly kernels.
-- `src/detect.exe` and `src/time_kernel.exe`: Pre-compiled Windows x86-64 binaries built from the sources above.
+### 2. `results/` (Generated Experimental Data)
+- [`results/1_kernel_timing.csv`](results/1_kernel_timing.csv): Kernel runtimes and speedups.
+- [`results/2_selector_decisions.csv`](results/2_selector_decisions.csv): 5-selector decisions on the 23-clip 576p suite.
+- [`results/2a_decisions_1080p.csv`](results/2a_decisions_1080p.csv): 5-selector decisions on the 18-clip 1080p suite.
+- [`results/3_zoning_summary.csv`](results/3_zoning_summary.csv): Multi-cut cycle and zoning results.
+- [`results/4_side_by_side_comparison.csv`](results/4_side_by_side_comparison.csv): Clip-by-clip side-by-side comparison on 1080p.
+- [`results/5_multicodec_comparison.csv`](results/5_multicodec_comparison.csv): Multi-codec comparison on `x264`, `x265`, and `SVT-AV1`.
+- [`results/6_real_world_recordings.csv`](results/6_real_world_recordings.csv): Results across the 5 real-world screencasts.
+- [`results/REPORT.md`](results/REPORT.md): Summary analysis of the full study.
 
-**Python Experiment Drivers**
-- [`src/run_timing.py`](src/run_timing.py): Runs the kernel benchmark and exports the timing comparison table to `results/1_kernel_timing.csv`.
-- [`src/run_study.py`](src/run_study.py): Evaluates all five 8-frame sampling rules (`Settled`, `Evenly Spread`, `Random`, `On-the-Cut`, and `High-Detail`) at targets VMAF 90 and VMAF 80, computes 10,000-resample bootstrap confidence intervals, evaluates OCR text recall, and summarizes the per-segment zoning experiments.
-- [`src/config.py`](src/config.py): Automatically locates FFmpeg, MinGW-w64 GCC, Tesseract OCR, and system fonts across Windows and macOS environments.
-
-### 2. `results/` (Generated Tables for the Paper and Course Report)
-- [`results/1_kernel_timing.csv`](results/1_kernel_timing.csv): Kernel execution times, throughput (MPix/s), speedups (6.6x to 7.8x for AVX2 over scalar C), and mismatch counts (`0`).
-- [`results/2_selector_decisions.csv`](results/2_selector_decisions.csv): Per-clip CRF decisions, 1st-percentile (9th-worst frame) VMAF shortfalls at targets 90 and 80, 5th-percentile (45th-worst frame) scores, and file sizes across all 23 test clips.
-- [`results/3_zoning_summary.csv`](results/3_zoning_summary.csv): Per-segment CRF choices, worst-frame VMAF, and file-size savings for the 4-segment and 44-segment `x264 --zones` experiments.
-
-### 3. `data/` (Static Inputs and Cached Quality Logs)
-Full 900-frame VMAF evaluations across all CRF rungs are pre-computed and stored here as JSON logs so `src/run_study.py` can recompute all selector votes in a few seconds without re-encoding videos from scratch:
-- `data/slides/`: Source slide PNGs and natural boundary images (`cat`, `gravel`, `leaves`).
-- `data/clips/`: Per-clip 900-frame VMAF JSON logs for the 15 screen clips, 3 hold-duration ablations, and 3 boundary clips.
-- `data/scenecut/`: VMAF logs with `x264` scene-cut detection enabled.
-- `data/ocr/`: Cached Tesseract OCR text recognition outputs on the 20-frame text holds.
-- `data/zoning/`: Cached VMAF logs and summaries for the multi-segment zoning experiments.
+### 3. `data/` (Static Assets and Pre-Computed Scores)
+- `data/clips_1080p/`: Decisions and full 900-frame VMAF logs for the 18 Full-HD clips.
+- `data/slides_1080p/`: 1080p simple, medium, and dense test slides.
+- `data/clips/`: 576p screen clips, camera controls, and dissolve tests.
+- `data/real_clips/`: Manifest and metadata for the 5 real-world screencast tutorials.
+- `data/zoning/`: Summary logs for rapid-cycle and 1080p60 tutorials.
 
 ### 4. `references/` (Literature)
-- Contains the reference PDFs and reading notes cited in our proposal and paper.
+- [`references/notes.md`](references/notes.md): Annotated bibliography of all 8 cited academic papers and industry references.
+- Verified reference PDFs.
 
 ---
 
-## Summary of Main Results
+## Summary of Results
 
-### 1. AVX2 vs. Scalar C Kernel Timing (899 Frame Pairs, 1024x576)
+### 1. AVX2 Cut Scanner Speedup (899 Full-HD 1080p Frame Pairs)
+- Scalar C (`-O0`): `1.0216 s` (`1136.4 us/pair`).
+- Auto-vectorized C (`gcc -O2`): `0.4493 s` (`499.8 us/pair`, `2.27x` speedup).
+- Hand-written AVX2 (`sad_avx2.s`): `0.1551 s` (`172.5 us/pair`, `6.59x` speedup, `0` mismatches).
+- Compared to one full 900-frame 1080p VMAF pass (`21.16 s`), our AVX2 scan is **136.4x faster**.
 
-| Kernel Implementation | Median Time (s) | Speedup vs. Scalar C | Mask Mismatches |
-| :--- | :---: | :---: | :---: |
-| `plain_c` (Scalar C) | `1.021557` | `1.00x` | `0` |
-| `autovectorized_c` (Compiler `-O3 -mavx2`) | `0.449318` | `2.27x` | `0` |
-| `avx2_asm` (Hand-written `sad_avx2.s`) | `0.155129` | **`6.59x`** | `0` |
+### 2. Five 8-Frame Sampling Strategies (18 Full-HD 1080p Clips, Target VMAF 90)
+- **Uniform (`libvmaf:n_subsample=112`):** `0 / 18` text hits. Fails target quality on `12 / 18` clips (`10.32` mean shortfall).
+- **Random (1,000 draws/clip):** `18.6%` text hit rate. Fails on `11 / 18` clips (`8.39` mean shortfall).
+- **Naive On-the-Cut (`cut..cut+7`):** Fails to find a passing CRF on `6 / 18` clips (`33.3%` failure rate) due to `0.0` VMAF transition spikes.
+- **Spatial Variance (Top-8 variance):** Fooled on `8 / 12` clips (`10.13` shortfall) by dark background slides.
+- **Settled Cut-Driven (`cut+8..cut+15`, Ours):** Passes `18 / 18` clips (`100%`) with **`0.00` shortfall**.
 
-### 2. Five 8-Frame Sampling Rules on 15 Screen Clips
+### 3. Multi-Codec Evaluation (`x264`, `x265`, `SVT-AV1`)
+- **H.264 (`x264`):** Uniform has `10.59` mean shortfall (`0 / 4` pass). Settled achieves `0.00` shortfall (`4 / 4` pass).
+- **HEVC (`x265`):** Uniform has `8.50` mean shortfall (`0 / 4` pass). Settled achieves `0.00` shortfall (`4 / 4` pass).
+- **AV1 (`SVT-AV1`):** Uniform has `1.56` mean shortfall (`1 / 4` pass). Settled achieves `0.00` shortfall (`4 / 4` pass) at `140.3 KB` average size.
 
-Shortfall measures how far the chosen file's 1st-percentile VMAF (9th-worst frame out of 900) falls below the target (lower is better; `0.00` means the clip met the target).
-
-| 8-Frame Selector Rule | Mean Shortfall (Target 90) | Clips Passing 90 | Mean Shortfall (Target 80) | Clips Passing 80 |
-| :--- | :---: | :---: | :---: | :---: |
-| **Settled Frames (`cut+8..cut+15`) [Ours]** | **`0.00`** | **`15 / 15`** | **`0.00`** | **`15 / 15`** |
-| Evenly Spread Frames (8 bin centers) | `12.22` | `0 / 15` | `17.77` | `1 / 15` |
-| Seeded Random Frames (8 random) | `10.79` | `2 / 15` | N/A | N/A |
-| On-the-Cut Frames (`cut..cut+7`) | `0.00` | `15 / 15` | N/A | N/A |
-| High-Detail Frames (top 8 luma variance) | `0.00` | `15 / 15` | N/A | N/A |
-
-### 3. Cut-Driven Per-Segment Zoning (`x264 --zones`)
-
-| Multi-Cut Experiment | Harsh / First-Slide Global CRF | Gentle Global CRF (Text-Safe) | Cut-Driven Zoned (`x264 --zones`) |
-| :--- | :---: | :---: | :---: |
-| **4-Segment Clip (480 frames, 3 cuts)** | `64,935 B` (Text VMAF drops to `51.56`) | `192,568 B` (All spans >= 90) | **`184,159 B`** (All spans >= 90, saves 4.4%) |
-| **44-Segment Cycle Clip (880 frames, 43 cuts)** | `403,836 B` (1st-pct VMAF drops to `36.52`) | `1,929,745 B` (1st-pct VMAF `90.27`) | **`1,793,543 B`** (1st-pct VMAF `90.27`, **saves 136 KB / 7.1%**) |
+### 4. Five Real-World Screencast Tutorials (30,695 Frames)
+- Screen stillness check: `93.0%` of frame pairs show absolute luma difference <= 2.
+- Worst-frame quality: Cut-driven zoning raises 1st-percentile VMAF from `74.35` to `83.40` (**`+9.05` VMAF improvement**).
+- Bitrate savings: Cut-driven zoning saves **`10.6%` in file size on average** compared to global settled encoding.
 
 ---
 
-## How to Run
+## Research Paper Documents
 
-### Windows (Native with Python 3.13 and MinGW-w64 GCC)
-```powershell
-python src/run_timing.py          # Export cached hardware timing table (or pass --live to run 5 passes)
-python src/run_study.py           # Run the full 5-selector and zoning study
-```
+The complete research paper is compiled in the repository root:
+- Word Document: [`paper.docx`](paper.docx) (openable in Microsoft Word, Pages, and Google Docs).
+- PDF Document: [`paper.pdf`](paper.pdf) (formatted 3-page research paper with tables and references).
+- HTML Source: [`paper.html`](paper.html).
 
-### macOS Apple Silicon (via Rosetta 2, Wine, and Homebrew Python 3.13)
+To rebuild the paper documents at any time:
 ```zsh
-/opt/homebrew/bin/python3.13 src/run_timing.py
-/opt/homebrew/bin/python3.13 src/run_study.py
+python3 src/build_paper_doc.py
 ```

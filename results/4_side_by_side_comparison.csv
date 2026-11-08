@@ -1,6 +1,19 @@
-selector,poc_pass_90,poc_missing_rungs,poc_mean_shortfall_90,poc_mean_kb,poc_mean_crf,paper_pass_90,paper_mean_shortfall_90,paper_mean_kb,paper_mean_crf
-1. Settled (cut+8..cut+15) [Ours],12 / 12,0,0.00,221.9,31.2,15 / 15,0.00,128.7,29.1
-2. Evenly Spread (8 bin centers),0 / 12,0,10.32,176.0,36.8,0 / 15,12.22,97.2,35.6
-3. Random (8 seeded frames),1 / 12,0,9.00,180.8,36.2,2 / 15,10.79,97.2,34.7
-4. On-the-Cut (cut..cut+7),9 / 12,3,0.00,222.2,31.1,15 / 15,0.00,128.7,29.1
-5. High-Detail (luma variance),2 / 12,2,10.13,179.6,36.4,15 / 15,0.00,128.7,29.1
+clip,group,easy_slide,dense_slide,cuts,spread_crf,spread_ninth_vmaf,spread_shortfall_90,spread_bytes,old_repo_settled_crf,old_repo_ninth_vmaf,old_repo_shortfall_90,old_repo_bytes,paper_zoned_crfs,paper_zoned_ninth_vmaf,paper_zoned_shortfall_90,paper_zoned_bytes,paper_zoned_encode_s,size_change_vs_old_pct
+01,comparison,simple\agenda slide.png,dense\article.png,538 558,36,81.8947,8.11,201029,31,90.3359,0.00,278437,38/31/36,90.1160,0.00,239536,7.06,-13.97
+02,comparison,simple\empty dashboard.png,dense\code-editor.png,418 438,37,81.5741,8.43,124114,32,90.5595,0.00,154573,37/32/37,90.6267,0.00,136955,7.06,-11.40
+03,comparison,simple\empty-editor.png,dense\rfc-body.png,223 243,40,69.5772,20.42,139214,31,90.4602,0.00,204478,38/31/41,90.2038,0.00,204540,4.90,0.03
+04,comparison,simple\section divider.png,dense\spec-columns.png,443 463,36,81.4888,8.51,178174,31,91.3732,0.00,213734,37/31/36,90.8479,0.00,207842,18.42,-2.76
+05,comparison,simple\grid-desktop.png,dense\spreadsheet.png,517 537,35,82.7738,7.23,218852,30,90.8028,0.00,260575,35/30/35,90.2773,0.00,250372,6.97,-3.92
+06,comparison,simple\editor-desktop.png,dense\terminal-log.png,591 611,37,82.1632,7.84,194150,32,90.5487,0.00,226663,37/32/38,90.3784,0.00,208559,9.20,-7.99
+07,comparison,simple\agenda slide.png,dense\code-editor.png,514 534,37,81.7383,8.26,138572,32,90.2160,0.00,181171,38/32/37,90.6477,0.00,149887,6.27,-17.27
+08,comparison,simple\empty dashboard.png,dense\rfc-body.png,545 565,36,80.4664,9.53,182951,31,90.0478,0.00,217530,37/30/36,91.1872,0.00,226598,5.98,4.17
+09,comparison,simple\empty-editor.png,dense\spec-columns.png,439 459,40,69.3064,20.69,127336,31,91.3489,0.00,179759,38/31/40,91.0826,0.00,177072,5.33,-1.49
+10,comparison,simple\section divider.png,dense\spreadsheet.png,357 377,36,79.6912,10.31,175860,30,91.1735,0.00,225225,37/30/36,90.8027,0.00,200063,27.24,-11.17
+11,comparison,simple\grid-desktop.png,dense\terminal-log.png,350 370,35,86.2791,3.72,201252,32,90.4774,0.00,231533,35/32/35,90.3301,0.00,217560,6.42,-6.03
+12,comparison,simple\editor-desktop.png,dense\article.png,582 602,37,79.2309,10.77,229937,31,90.2406,0.00,288887,37/30/38,91.0229,0.00,284662,5.87,-1.46
+13,boundary,medium\analytics.png,dense\rfc-body.png,644 664,32,89.2371,0.76,310307,31,90.4448,0.00,307381,33/31/32,90.2396,0.00,313415,6.35,1.96
+14,boundary,medium\blank-writer.png,dense\spec-columns.png,182 202,33,88.7011,1.30,232628,31,91.5042,0.00,237422,34/31/33,90.6344,0.00,253553,5.94,6.79
+15,boundary,medium\board.png,dense\spreadsheet.png,481 501,34,83.9488,6.05,266908,30,90.8531,0.00,312065,34/30/34,90.7511,0.00,292912,5.38,-6.14
+16,boundary,medium\control-panel.png,dense\terminal-log.png,515 535,37,82.3788,7.62,183355,32,90.4251,0.00,244848,37/32/37,90.2206,0.00,216781,6.03,-11.46
+17,boundary,medium\file-manager.png,dense\article.png,631 651,34,86.1562,3.84,252185,31,90.2900,0.00,300792,34/31/33,90.0552,0.00,274870,7.82,-8.62
+18,boundary,medium\appearance.png,dense\code-editor.png,354 374,36,85.1342,4.87,188088,32,90.5684,0.00,246047,36/32/36,90.4130,0.00,193152,5.89,-21.50

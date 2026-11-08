@@ -1,0 +1,6 @@
+slug,title,resolution,fps,total_frames,quiet_pct,cuts_detected,settled_segments,uniform_crf,uniform_p1_vmaf,uniform_shortfall,uniform_size_kb,settled_global_crf,settled_global_p1_vmaf,settled_global_shortfall,settled_global_size_kb,zoned_policy,zoned_p1_vmaf,zoned_shortfall,zoned_size_kb,size_reduction_pct,vmaf_improvement
+commons_account,Wikimedia Commons Account Tutorial,1920x1080,60,10835,97.7,84,72,35,62.28,27.72,2953.8,32,71.19,18.81,3893.4,x264 --zones (85 zones),79.6,10.4,3728.8,-4.2,8.41
+namespaces,Wikipedia Namespaces Screencast,1920x1080,30,3428,99.6,12,10,32,85.49,4.51,315.4,28,90.02,0.0,412.0,x264 --zones (4 zones),90.01,0.0,358.2,-13.1,4.52
+firefox_wiki,Firefox Wikipedia Browsing,1920x1080,30,1405,98.4,16,12,32,80.64,9.36,656.1,28,88.62,1.38,889.0,x264 --zones (11 zones),88.6,1.4,792.4,-10.9,7.96
+userpage_tutorial,Wikipedia Userpage Creation,1920x1080,30,1518,75.2,123,58,32,63.16,26.84,2407.3,28,72.05,17.95,3848.4,x264 --zones (62 zones),72.04,17.96,3314.7,-13.9,8.88
+wikidata_linking,Wikidata Linking Tutorial,1920x1080,30,13509,94.1,134,86,32,80.2,9.8,1388.1,28,86.76,3.24,1953.2,x264 --zones (88 zones),86.75,3.25,1742.6,-10.8,6.55

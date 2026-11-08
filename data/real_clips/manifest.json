@@ -1,0 +1,57 @@
+[
+  {
+    "slug": "commons_account",
+    "title": "File:How to create a Wikimedia Commons account – screen recording tutorial.webm",
+    "url": "https://commons.wikimedia.org/wiki/File:How_to_create_a_Wikimedia_Commons_account_%E2%80%93_screen_recording_tutorial.webm",
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "total_frames": 10835,
+    "license": "CC BY-SA 4.0",
+    "description": "Unscripted account registration walkthrough on Wikimedia Commons"
+  },
+  {
+    "slug": "namespaces",
+    "title": "File:Namespaces.webm",
+    "url": "https://commons.wikimedia.org/wiki/File:Namespaces.webm",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "total_frames": 3428,
+    "license": "CC BY-SA 3.0",
+    "description": "Video explaining Wikipedia namespaces and search prefixes"
+  },
+  {
+    "slug": "firefox_wiki",
+    "title": "File:Firefox 136 on Fedora 41, browsing the English Wikipedia site.webm",
+    "url": "https://commons.wikimedia.org/wiki/File:Firefox_136_on_Fedora_41%2C_browsing_the_English_Wikipedia_site.webm",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "total_frames": 1405,
+    "license": "CC BY-SA 4.0",
+    "description": "Browser screencast navigating articles and search on Fedora 41"
+  },
+  {
+    "slug": "userpage_tutorial",
+    "title": "File:Tutorial 1 Benutzerseite erstellen.webm",
+    "url": "https://commons.wikimedia.org/wiki/File:Tutorial_1_Benutzerseite_erstellen.webm",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "total_frames": 1518,
+    "license": "CC BY-SA 4.0",
+    "description": "Screencast tutorial editing a Wikipedia user page and formatting text"
+  },
+  {
+    "slug": "wikidata_linking",
+    "title": "File:Creating or linking Wikidata entries for new Wikipedia articles.webm",
+    "url": "https://commons.wikimedia.org/wiki/File:Creating_or_linking_Wikidata_entries_for_new_Wikipedia_articles.webm",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "total_frames": 13509,
+    "license": "CC BY-SA 3.0",
+    "description": "Instructional screencast creating and linking Wikidata items"
+  }
+]
