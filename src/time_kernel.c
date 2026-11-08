@@ -65,12 +65,13 @@ int main(int argc, char **argv) {
     int nframes;
     size_t npix;
     uint8_t *frames;
+    FILE *in;
     LARGE_INTEGER freq;
     int mismatches = 0;
     int i;
 
-    if (argc != 4) {
-        fprintf(stderr, "usage: time_kernel width height frames\n");
+    if (argc < 4 || argc > 5) {
+        fprintf(stderr, "usage: time_kernel width height frames [gray.raw]\n");
         return 2;
     }
     width = atoi(argv[1]);
@@ -86,10 +87,27 @@ int main(int argc, char **argv) {
         fprintf(stderr, "out of memory\n");
         return 2;
     }
-    _setmode(_fileno(stdin), _O_BINARY);
-    if (fread(frames, npix, (size_t)nframes, stdin) != (size_t)nframes) {
+    if (argc == 5 && strcmp(argv[4], "-") != 0) {
+        in = fopen(argv[4], "rb");
+        if (!in) {
+            perror(argv[4]);
+            free(frames);
+            return 2;
+        }
+    } else {
+        _setmode(_fileno(stdin), _O_BINARY);
+        in = stdin;
+    }
+    if (fread(frames, npix, (size_t)nframes, in) != (size_t)nframes) {
         fprintf(stderr, "short read\n");
+        if (in != stdin) {
+            fclose(in);
+        }
+        free(frames);
         return 2;
+    }
+    if (in != stdin) {
+        fclose(in);
     }
 
     for (i = 1; i < nframes; i++) {

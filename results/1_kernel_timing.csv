@@ -1,0 +1,5 @@
+kernel,runs,median_s,per_pair_ms,mpix_per_s,speedup_vs_plain_c,cuts,mismatches
+plain_c,5,1.021557,1.1363,519.1,1.00,2,0
+autovectorized_c,5,0.449318,0.4998,1180.1,2.27,2,0
+avx2_asm,5,0.155129,0.1726,3418.1,6.59,2,0
+vmaf_one_pass,1,21.155590,,,,,

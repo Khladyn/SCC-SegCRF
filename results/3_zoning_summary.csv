@@ -1,0 +1,13 @@
+experiment,picture,frames,chosen_crf,uniform_vote,zoned_vote,zoned_worst,zoned_worst_frame,one_gentle_worst,one_gentle_frame,first_picture_worst,first_picture_frame
+4-span-zones (480f),plain,0-119,44,97.43,97.43,97.43,0,97.43,0,97.43,0
+4-span-zones (480f),text,120-239,31,91.06,91.06,91.04,120,92.02,125,51.56,120
+4-span-zones (480f),chart,240-359,34,91.49,91.49,91.43,240,94.16,240,69.77,240
+4-span-zones (480f),gravel,360-479,30,90.16,90.16,90.12,360,90.12,360,46.97,360
+44-span-cycle (visit 1),plain,0-19,44,97.43,97.43,97.43,0,,,,
+44-span-cycle (visit 1),text,20-39,30,90.38,90.38,90.38,38,,,,
+44-span-cycle (visit 1),chart,40-59,33,90.91,90.91,90.82,40,,,,
+44-span-cycle (visit 1),gravel,60-79,28,90.27,90.27,90.27,65,,,,
+44-span-cycle (visit 2),plain,80-99,44,97.43,97.43,97.43,80,,,,
+44-span-cycle (visit 2),text,100-119,30,90.38,90.38,90.38,118,,,,
+44-span-cycle (visit 2),chart,120-139,33,90.91,90.91,90.82,120,,,,
+44-span-cycle (visit 2),gravel,140-159,28,90.27,90.27,90.27,145,,,,

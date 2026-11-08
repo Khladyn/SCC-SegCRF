@@ -1,5 +1,0 @@
-pairs 10804 quiet 10553 (97.7%) cuts 84
-settled visits with 8-frame wait: 76
-cuts: 68, 148, 324, 489, 660, 837, 1006, 1208, 1275, 1615, 1779, 1881, 1917, 1981, 1994, 2147, 2175, 2229, 2251, 2256, 2259, 2309, 2341, 2345, 2438, 2467, 2502, 2547, 2740, 2776, 2785, 2992, 3005, 3097, 3139, 3144, 3349, 3371, 3425, 3470
-... 44 more cuts
-samples: 68->sample 76-83 (8 frames); 148->sample 156-163 (8 frames); 324->sample 332-339 (8 frames); 489->sample 497-504 (8 frames); 660->sample 668-675 (8 frames); 837->sample 845-852 (8 frames); 1006->sample 1014-1021 (8 frames); 1208->sample 1216-1223 (8 frames); 1275->sample 1283-1290 (8 frames); 1615->sample 1623-1630 (8 frames); 1779->sample 1787-1794 (8 frames); 1881->sample 1889-1896 (8 frames)

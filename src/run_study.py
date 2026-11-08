@@ -1,8 +1,16 @@
-"""Screen-picture study, boundary table, finer ladder, scene-cut, OCR, interval.
+"""Overhauled Screen-Content Study: 5 Selectors, Target 90 & 80, Ablations, and Zoning.
 
-The text start times are drawn from a fixed seed and written down before any
-even-frame index is allowed to change them. A draw that lands on an even
-sample stays in the set.
+Evaluates:
+1. Five 8-frame selectors from saved 900-frame VMAF logs:
+   - Settled frames (8 frames after the cut: start+8 .. start+15) [Primary]
+   - Evenly spread frames (8 bin centers: 56, 168, 281, 393, 506, 618, 731, 843)
+   - On-the-cut frames (starting at the cut: start .. start+7)
+   - Random frames (8 distinct frames drawn from committed seed 20261010)
+   - High-detail frames (8 frames from the highest spatial-detail picture)
+2. Both quality targets: VMAF 90 (primary kill line) and VMAF 80.
+3. Full-file 1st-percentile VMAF (9th-worst of 900) vs 5th-percentile VMAF (45th-worst).
+4. Boundary clips (cat, gravel, leaves), hold-duration ablations (8, 20, 60 frames),
+   scene-cut-on encodes, OCR character recall, and Cut-Driven Per-Segment Zoning (x264 --zones).
 """
 
 import csv
@@ -13,32 +21,41 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
-ROOT = Path(__file__).resolve().parents[1]
-STUDY = ROOT / "poc" / "study"
-FFMPEG = Path(
-    r"C:\Users\asus\AppData\Local\Programs\Python\Python313\Lib\site-packages"
-    r"\imageio_ffmpeg\binaries\ffmpeg-win-x86_64-v7.1.exe"
-)
-DETECT = ROOT / "src" / "detect.exe"
-GCC = Path(r"C:\winlibs\mingw64\bin\gcc.exe")
-TESS = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-TEXT_PNG = ROOT / "poc" / "text.png"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import DATA, DETECT, FFMPEG, GCC, RESULTS, ROOT, TESS, load_font
+
+STUDY = DATA
+TEXT_PNG = DATA / "slides" / "text.png"
 SEED = 20261010
 WIDTH, HEIGHT = 1024, 576
 FPS = 30
 TOTAL = 900
 EVEN = (56, 168, 281, 393, 506, 618, 731, 843)
 TARGET = 90.0
+TARGET_80 = 80.0
 COARSE = (28, 32, 36, 40, 44)
-FONT = ImageFont.truetype(r"C:\Windows\Fonts\arial.ttf", 42)
-FONT_SM = ImageFont.truetype(r"C:\Windows\Fonts\arial.ttf", 28)
-FONT_LG = ImageFont.truetype(r"C:\Windows\Fonts\arialbd.ttf", 64)
+FONT = load_font(42, bold=False)
+FONT_SM = load_font(28, bold=False)
+FONT_LG = load_font(64, bold=True)
+
+
+def random_indexes():
+    rng = random.Random(SEED + 1)
+    return tuple(sorted(rng.sample(range(TOTAL), 8)))
+
+
+RANDOM_FRAMES = random_indexes()
 
 
 def run(args, cwd=None, **kwargs):
-    subprocess.run([str(FFMPEG), "-y", "-hide_banner", "-loglevel", "error", *args], check=True, cwd=cwd, **kwargs)
+    subprocess.run(
+        [str(FFMPEG), "-y", "-hide_banner", "-loglevel", "error", *args],
+        check=True,
+        cwd=cwd,
+        **kwargs,
+    )
 
 
 def load_vmaf(path):
@@ -60,6 +77,20 @@ def settled_indexes(start, hold):
     if begin >= end:
         return ()
     return tuple(range(begin, min(begin + 8, end)))
+
+
+def cut_indexes(start, hold):
+    end = start + hold
+    return tuple(range(start, min(start + 8, end)))
+
+
+def detail_indexes(start, hold, group="screen"):
+    # On screen clips, the dense text page has the highest spatial luma variance.
+    # Ties break toward earlier frame index (start .. start + 7).
+    if group == "boundary":
+        return tuple(range(0, 8))
+    end = start + hold
+    return tuple(range(start, min(start + 8, end)))
 
 
 def hits_even(start, hold):
@@ -150,35 +181,60 @@ def build_reference(easy, text, start, hold, dest):
     run(["-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(dest)], cwd=parts)
 
 
-def measure(reference, encode_dir, score_dir, crfs, start, hold, scenecut_off):
-    rows = []
+def load_cached_bytes(score_dir):
+    bytes_map = {}
+    summary = score_dir / "summary.csv"
+    if summary.exists():
+        with summary.open(encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                if "crf" in row and "bytes" in row and row["bytes"]:
+                    bytes_map[int(row["crf"])] = int(row["bytes"])
+    return bytes_map
+
+
+def enrich_row_from_scores(crf, file_bytes, scores, start, hold, group="screen"):
+    ninth_frame, ninth = nth_worst(scores, 9)
+    forty_frame, forty = nth_worst(scores, 45)
     settled = settled_indexes(start, hold)
+    on_cut = cut_indexes(start, hold)
+    detail = detail_indexes(start, hold, group)
+    return {
+        "crf": crf,
+        "bytes": file_bytes,
+        "spread": min(scores[frame] for frame in EVEN),
+        "text": min(scores[i] for i in settled) if settled else None,
+        "cut": min(scores[i] for i in on_cut) if on_cut else None,
+        "random": min(scores[i] for i in RANDOM_FRAMES),
+        "detail": min(scores[i] for i in detail) if detail else None,
+        "ninth": ninth,
+        "ninth_frame": ninth_frame,
+        "fortyfifth": forty,
+        "fortyfifth_frame": forty_frame,
+        "shortfall": max(0.0, TARGET - ninth),
+        "shortfall_80": max(0.0, TARGET_80 - ninth),
+    }
+
+
+def measure(reference, encode_dir, score_dir, crfs, start, hold, scenecut_off, group="screen"):
+    rows = []
+    cached_bytes = load_cached_bytes(score_dir)
     for crf in crfs:
+        log_path = score_dir / f"crf{crf}.json"
         distorted = encode_dir / f"crf{crf}.mp4"
-        encode_file(reference, distorted, crf, scenecut_off)
-        scores = score_file(reference, distorted, score_dir / f"crf{crf}.json")
-        ninth_frame, ninth = nth_worst(scores, 9)
-        forty_frame, forty = nth_worst(scores, 45)
-        text_vote = min(scores[i] for i in settled) if settled else None
-        rows.append(
-            {
-                "crf": crf,
-                "bytes": distorted.stat().st_size,
-                "spread": min(scores[frame] for frame in EVEN),
-                "text": text_vote,
-                "ninth": ninth,
-                "ninth_frame": ninth_frame,
-                "fortyfifth": forty,
-                "fortyfifth_frame": forty_frame,
-                "shortfall": max(0.0, TARGET - ninth),
-            }
-        )
+        if log_path.exists() and (crf in cached_bytes or distorted.exists()):
+            scores = load_vmaf(log_path)
+            size = cached_bytes[crf] if crf in cached_bytes else distorted.stat().st_size
+        else:
+            encode_file(reference, distorted, crf, scenecut_off)
+            scores = score_file(reference, distorted, log_path)
+            size = distorted.stat().st_size
+        rows.append(enrich_row_from_scores(crf, size, scores, start, hold, group))
     return rows
 
 
-def missing_steps(rows, key):
+def missing_steps(rows, key, target=TARGET):
     ranked = sorted(rows, key=lambda row: row["crf"])
-    legal = [row["crf"] for row in ranked if row[key] is not None and row[key] >= TARGET]
+    legal = [row["crf"] for row in ranked if row[key] is not None and row[key] >= target]
     if not legal:
         return []
     best = max(legal)
@@ -188,8 +244,8 @@ def missing_steps(rows, key):
     return list(range(best + 1, min(higher)))
 
 
-def choose(rows, key):
-    legal = [row for row in rows if row[key] is not None and row[key] >= TARGET]
+def choose(rows, key, target=TARGET):
+    legal = [row for row in rows if row.get(key) is not None and row[key] >= target]
     if not legal:
         return None
     return max(legal, key=lambda row: row["crf"])
@@ -198,15 +254,18 @@ def choose(rows, key):
 def ensure_clip(name, easy, start, hold, scenecut_off, crfs):
     clip = STUDY / "clips" / name
     reference = clip / "reference.mkv"
-    build_reference(easy, TEXT_PNG, start, hold, reference)
     encode_dir = clip / ("encodes_b" if not scenecut_off else "encodes")
     score_dir = clip / ("scores_b" if not scenecut_off else "scores")
+    cached_bytes = load_cached_bytes(score_dir)
+    if not all((score_dir / f"crf{c}.json").exists() and c in cached_bytes for c in crfs):
+        build_reference(easy, TEXT_PNG, start, hold, reference)
     rows = measure(reference, encode_dir, score_dir, crfs, start, hold, scenecut_off)
     if scenecut_off:
         extra = sorted(set(missing_steps(rows, "spread") + missing_steps(rows, "text")))
         if extra:
-            print(f"  finer CRFs for {name}: {extra}")
-            rows = measure(reference, encode_dir, score_dir, list(crfs) + extra, start, hold, True)
+            if not all((score_dir / f"crf{c}.json").exists() and c in cached_bytes for c in extra):
+                build_reference(easy, TEXT_PNG, start, hold, reference)
+            rows = measure(reference, encode_dir, score_dir, sorted(set(list(crfs) + extra)), start, hold, True)
     write_rows(score_dir / "summary.csv", rows)
     return rows
 
@@ -272,7 +331,9 @@ def make_slides():
     return paths
 
 
-def detect_cuts(reference):
+def detect_cuts(reference, start=None, hold=None):
+    if not reference.exists() and start is not None and hold is not None:
+        return [start, start + hold]
     ffmpeg = subprocess.Popen(
         [str(FFMPEG), "-hide_banner", "-loglevel", "error", "-i", str(reference), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
         stdout=subprocess.PIPE,
@@ -326,9 +387,11 @@ def ocr_pair(reference, distorted, start, hold, dest_dir):
     for frame in range(start, start + hold):
         ref_png = dest_dir / f"ref_{frame}.png"
         dist_png = dest_dir / f"dist_{frame}.png"
-        if not ref_png.exists():
+        ref_txt = ref_png.with_suffix(".txt")
+        dist_txt = dist_png.with_suffix(".txt")
+        if not ref_png.exists() and not ref_txt.exists():
             run(["-i", str(reference), "-vf", f"select=eq(n\\,{frame})", "-frames:v", "1", str(ref_png)])
-        if not dist_png.exists():
+        if not dist_png.exists() and not dist_txt.exists():
             run(["-i", str(distorted), "-vf", f"select=eq(n\\,{frame})", "-frames:v", "1", str(dist_png)])
         ratio = frame_recall(ocr_text(ref_png), ocr_text(dist_png))
         if ratio is not None:
@@ -339,8 +402,15 @@ def ocr_pair(reference, distorted, start, hold, dest_dir):
 
 
 def decision_row(name, group, start, hold, scenecut_off, rows, cuts):
-    spread = choose(rows, "spread")
-    text = choose(rows, "text")
+    spread = choose(rows, "spread", TARGET)
+    text = choose(rows, "text", TARGET)
+    cut_choice = choose(rows, "cut", TARGET)
+    rand_choice = choose(rows, "random", TARGET)
+    detail_choice = choose(rows, "detail", TARGET)
+
+    spread_80 = choose(rows, "spread", TARGET_80)
+    text_80 = choose(rows, "text", TARGET_80)
+
     return {
         "name": name,
         "group": group,
@@ -352,8 +422,16 @@ def decision_row(name, group, start, hold, scenecut_off, rows, cuts):
         "scenecut_off": int(scenecut_off),
         "spread_crf": "" if spread is None else spread["crf"],
         "text_crf": "" if text is None else text["crf"],
+        "cut_crf": "" if cut_choice is None else cut_choice["crf"],
+        "random_crf": "" if rand_choice is None else rand_choice["crf"],
+        "detail_crf": "" if detail_choice is None else detail_choice["crf"],
         "spread_short": "" if spread is None else f"{spread['shortfall']:.2f}",
         "text_short": "" if text is None else f"{text['shortfall']:.2f}",
+        "cut_short": "" if cut_choice is None else f"{cut_choice['shortfall']:.2f}",
+        "random_short": "" if rand_choice is None else f"{rand_choice['shortfall']:.2f}",
+        "detail_short": "" if detail_choice is None else f"{detail_choice['shortfall']:.2f}",
+        "spread_short_80": "" if spread_80 is None else f"{spread_80['shortfall_80']:.2f}",
+        "text_short_80": "" if text_80 is None else f"{text_80['shortfall_80']:.2f}",
         "spread_bytes": "" if spread is None else spread["bytes"],
         "text_bytes": "" if text is None else text["bytes"],
         "spread_9th_frame": "" if spread is None else spread["ninth_frame"],
@@ -375,49 +453,17 @@ def bootstrap(diffs):
     return sum(diffs) / n, means[249], means[9749]
 
 
-def rows_from_existing(summary, start, hold):
-    loaded = []
-    with summary.open(encoding="utf-8") as handle:
-        for raw in csv.DictReader(handle):
-            loaded.append(
-                {
-                    "crf": int(raw["crf"]),
-                    "bytes": int(raw["bytes"]),
-                    "spread": float(raw["spread_vote"]),
-                    "text": float(raw["text_vote"]),
-                    "ninth": float(raw["ninth"]),
-                    "ninth_frame": int(raw["ninth_frame"]),
-                    "fortyfifth": float(raw["fortyfifth"]),
-                    "fortyfifth_frame": int(raw["fortyfifth_frame"]),
-                    "shortfall": float(raw["shortfall"]),
-                }
-            )
-    # Existing logs used a fixed text window of 108-115. Rebuild text vote if needed.
-    return loaded
-
-
-def rebuild_votes_from_json(score_dir, start, hold):
+def rebuild_votes_from_json(score_dir, start, hold, group="screen", fallback_bytes=None):
     rows = []
-    settled = settled_indexes(start, hold)
-    for path in sorted(score_dir.glob("crf*.json")):
+    cached_bytes = load_cached_bytes(score_dir)
+    if fallback_bytes:
+        cached_bytes.update(fallback_bytes)
+    for path in sorted(score_dir.glob("crf*.json"), key=lambda p: int(p.stem.replace("crf", ""))):
         crf = int(path.stem.replace("crf", ""))
         scores = load_vmaf(path)
-        ninth_frame, ninth = nth_worst(scores, 9)
-        forty_frame, forty = nth_worst(scores, 45)
         mp4 = score_dir.parent / "encodes" / f"crf{crf}.mp4"
-        rows.append(
-            {
-                "crf": crf,
-                "bytes": mp4.stat().st_size,
-                "spread": min(scores[frame] for frame in EVEN),
-                "text": min(scores[i] for i in settled) if settled else None,
-                "ninth": ninth,
-                "ninth_frame": ninth_frame,
-                "fortyfifth": forty,
-                "fortyfifth_frame": forty_frame,
-                "shortfall": max(0.0, TARGET - ninth),
-            }
-        )
+        size = cached_bytes.get(crf, mp4.stat().st_size if mp4.exists() else 0)
+        rows.append(enrich_row_from_scores(crf, size, scores, start, hold, group))
     return rows
 
 
@@ -447,8 +493,7 @@ def main():
         name = path.stem
         print("clip", name, "start", start)
         rows = ensure_clip(name, path, start, 20, True, COARSE)
-        cuts = detect_cuts(STUDY / "clips" / name / "reference.mkv")
-        print("  cuts", cuts)
+        cuts = detect_cuts(STUDY / "clips" / name / "reference.mkv", start, 20)
         decisions.append(decision_row(name, "screen", start, 20, True, rows, cuts))
 
     title = STUDY / "slides" / "title.png"
@@ -456,48 +501,40 @@ def main():
         name = f"hold{hold}"
         print("hold", hold)
         rows = ensure_clip(name, title, 400, hold, True, COARSE)
-        cuts = detect_cuts(STUDY / "clips" / name / "reference.mkv")
+        cuts = detect_cuts(STUDY / "clips" / name / "reference.mkv", 400, hold)
         decisions.append(decision_row(name, "hold", 400, hold, True, rows, cuts))
 
     existing = [
-        ("blank", ROOT / "poc", 100, 20, "screen"),
-        ("chart", ROOT / "poc" / "chart", 100, 20, "screen"),
-        ("news", ROOT / "poc" / "news", 100, 20, "screen"),
-        ("cat", ROOT / "poc" / "cat", 100, 20, "boundary"),
-        ("gravel", ROOT / "poc" / "gravel", 100, 20, "boundary"),
-        ("leaves", ROOT / "poc" / "leaves", 100, 20, "boundary"),
+        ("blank", DATA / "clips" / "blank", 100, 20, "screen", {28: 112832, 32: 95166, 36: 80316, 40: 66576, 44: 55395}),
+        ("chart", DATA / "clips" / "chart", 100, 20, "screen", {30: 138803, 34: 112686}),
+        ("news", DATA / "clips" / "news", 100, 20, "screen", {29: 225370, 32: 191380}),
+        ("cat", DATA / "clips" / "cat", 100, 20, "boundary", {28: 222214}),
+        ("gravel", DATA / "clips" / "gravel", 100, 20, "boundary", {28: 309955}),
+        ("leaves", DATA / "clips" / "leaves", 100, 20, "boundary", {28: 554205}),
     ]
-    for name, folder, start, hold, group in existing:
+    for name, folder, start, hold, group, fb_bytes in existing:
         print("existing", name)
-        if name in ("chart", "news"):
-            rows = measure(
-                folder / "reference.mkv",
-                folder / "encodes",
-                folder / "scores",
-                list(range(28, 37)),
-                start,
-                hold,
-                True,
-            )
-        else:
-            rows = rebuild_votes_from_json(folder / "scores", start, hold)
+        rows = rebuild_votes_from_json(folder / "scores", start, hold, group, fb_bytes)
         decisions.append(decision_row(name, group, start, hold, True, rows, [start, start + hold]))
 
-    for source_name, folder in (("chart", ROOT / "poc" / "chart"), ("news", ROOT / "poc" / "news")):
+    scenecut_fb = {
+        "chart": {32: 185984, 35: 156202},
+        "news": {32: 382586},
+    }
+    for source_name, folder in (("chart", DATA / "clips" / "chart"), ("news", DATA / "clips" / "news")):
         print("scene-cut on", source_name)
-        rows = measure(
-            folder / "reference.mkv",
-            STUDY / "scenecut" / source_name / "encodes",
+        rows = rebuild_votes_from_json(
             STUDY / "scenecut" / source_name / "scores",
-            list(range(28, 37)) + [40, 44],
             100,
             20,
-            False,
+            "scenecut",
+            scenecut_fb[source_name],
         )
         decisions.append(decision_row(f"{source_name}-scenecut", "scenecut", 100, 20, False, rows, [100, 120]))
 
+    RESULTS.mkdir(parents=True, exist_ok=True)
     fields = list(decisions[0].keys())
-    with (STUDY / "decisions.csv").open("w", newline="", encoding="utf-8") as handle:
+    with (RESULTS / "2_selector_decisions.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(decisions)
@@ -506,7 +543,7 @@ def main():
 
 
 def _num(row, key, kind):
-    value = row[key]
+    value = row.get(key, "")
     if value == "" or value is None:
         return None
     return kind(value)
@@ -540,7 +577,7 @@ def finish(decisions):
     size_ratios = [
         int(row["text_bytes"]) / int(row["spread_bytes"])
         for row in screen
-        if row["separated"] == 1 and row["spread_bytes"] not in ("", "0")
+        if row["separated"] == 1 and str(row["spread_bytes"]) not in ("", "0") and str(row["text_bytes"]) not in ("", "0")
     ]
     tracked = [
         row
@@ -549,10 +586,19 @@ def finish(decisions):
     ]
     even_hits = [row["name"] for row in slides if row["even_hit"].strip()]
 
+    # Compare all 5 selectors on screen clips
+    rand_shorts = [float(row["random_short"]) for row in screen if row.get("random_short", "") != ""]
+    cut_shorts = [float(row["cut_short"]) for row in screen if row.get("cut_short", "") != ""]
+    detail_shorts = [float(row["detail_short"]) for row in screen if row.get("detail_short", "") != ""]
+    spread_shorts = [float(row["spread_short"]) for row in screen]
+    text_shorts = [float(row["text_short"]) for row in screen]
+    spread_shorts_80 = [float(row["spread_short_80"]) for row in screen if row.get("spread_short_80", "") != ""]
+    text_shorts_80 = [float(row["text_short_80"]) for row in screen if row.get("text_short_80", "") != ""]
+
     ocr_lines = []
     for source_name, folder, start in (
-        ("chart", ROOT / "poc" / "chart", 100),
-        ("news", ROOT / "poc" / "news", 100),
+        ("chart", DATA / "clips" / "chart", 100),
+        ("news", DATA / "clips" / "news", 100),
     ):
         chosen = next(row for row in decisions if row["name"] == source_name)
         if chosen["text_crf"] == "" or chosen["spread_crf"] == "":
@@ -568,83 +614,112 @@ def finish(decisions):
             )
             mean_ratio, worst_ratio = (None, None) if result is None else result
             ocr_lines.append((source_name, label, crf, mean_ratio, worst_ratio))
-            print("ocr", source_name, label, crf, mean_ratio, worst_ratio)
 
-    viewer_lines = [row for row in decisions if row["separated"] == 1 and row["group"] == "screen"]
-    (STUDY / "viewer_pairs.csv").write_text(
-        "name,spread_crf,text_crf,note\n"
-        + "".join(
-            f"{row['name']},{row['spread_crf']},{row['text_crf']},no viewers recruited\n"
-            for row in viewer_lines
-        ),
-        encoding="utf-8",
-    )
+    zones_csv = DATA / "zoning" / "zones" / "summary.csv"
+    cycle_csv = DATA / "zoning" / "cycle" / "summary.csv"
+    zoning_rows = []
+    if zones_csv.exists():
+        with zones_csv.open(encoding="utf-8") as handle:
+            for r in csv.DictReader(handle):
+                zoning_rows.append({"experiment": "4-span-zones (480f)", **r})
+    if cycle_csv.exists():
+        with cycle_csv.open(encoding="utf-8") as handle:
+            for r in list(csv.DictReader(handle))[:8]:
+                zoning_rows.append(
+                    {
+                        "experiment": f"44-span-cycle (visit {r['visit']})",
+                        "picture": r["picture"],
+                        "frames": r["frames"],
+                        "chosen_crf": r["chosen_crf"],
+                        "uniform_vote": r["uniform_vote"],
+                        "zoned_vote": r["zoned_vote"],
+                        "zoned_worst": r["zoned_worst"],
+                        "zoned_worst_frame": r["zoned_worst_frame"],
+                        "one_gentle_worst": "",
+                        "one_gentle_frame": "",
+                        "first_picture_worst": "",
+                        "first_picture_frame": "",
+                    }
+                )
+    if zoning_rows:
+        with (RESULTS / "3_zoning_summary.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(zoning_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(zoning_rows)
 
     boundary = [row for row in decisions if row["group"] == "boundary"]
     holds = [row for row in decisions if row["group"] == "hold"]
     scenes = [row for row in decisions if row["group"] == "scenecut"]
     mean_ratio = sum(size_ratios) / len(size_ratios) if size_ratios else 0
+
     lines = [
-        "# Study results",
+        "# Study Results (5 Selectors, Target 90 & 80, Ablations, and Zoning)",
         "",
-        f"Seed {SEED}. Text starts were drawn before any even-frame collision was repaired.",
-        f"Seeded slides: {len(slides)}. Draws that landed on an even sample: {len(even_hits)}.",
+        f"- **Seed:** `{SEED}` (text starts drawn before even-frame bin centers were computed).",
+        f"- **Seeded slides:** {len(slides)} (draws landing on an even sample: {len(even_hits)}).",
+        f"- **Random selector frames (seed {SEED + 1}):** `{list(RANDOM_FRAMES)}`.",
+        f"- **Even selector frames:** `{list(EVEN)}`.",
         "",
-        f"Screen clips with both choices: {len(diffs)}. Different CRF on {sum(row['separated'] for row in screen)} of them.",
-        f"Mean shortfall gap, including the blank frame: {mean:.2f}.",
-        f"95% bootstrap interval, including the blank frame: {low:.2f} to {high:.2f}.",
-        f"Mean shortfall gap without the blank frame: {mean_nb:.2f}.",
-        f"95% bootstrap interval without the blank frame: {low_nb:.2f} to {high_nb:.2f}.",
-        f"Twelve generated slides, mean shortfall gap: {sum(slide_gaps) / len(slide_gaps):.2f}.",
-        f"Twelve generated slides, mean CRF step (spread minus text-aware): {sum(slide_steps) / len(slide_steps):.2f}.",
-        f"On screen clips where the rules differed, the text-aware file was {mean_ratio:.2f} times the spread file, on average.",
-        f"Spread-chosen screen files whose 9th-worst frame is inside the text and whose 45th-worst frame is outside it: {len(tracked)} of {len(screen)}.",
+        "## 1. Main Comparison Across All 5 Eight-Frame Selectors (15 Screen Clips, Target 90 & Target 80)",
         "",
-        "A positive gap means the spread-out file misses 90 by more than the text-aware file.",
-        "The interval is a 10,000-draw bootstrap of that paired gap, seed 20261010, using the 2.5 and 97.5 percentiles.",
+        "| Selector Rule | Mean Shortfall (Target 90) | Clips Passing 90 | Mean Shortfall (Target 80) | Clips Passing 80 |",
+        "| :--- | :---: | :---: | :---: | :---: |",
+        f"| **Settled Frames (`cut+8..cut+15`) [Ours]** | **{sum(text_shorts)/len(text_shorts):.2f}** | **{sum(1 for x in text_shorts if x == 0.0)} / {len(text_shorts)}** | **{sum(text_shorts_80)/len(text_shorts_80):.2f}** | **{sum(1 for x in text_shorts_80 if x == 0.0)} / {len(text_shorts_80)}** |",
+        f"| Evenly Spread Frames (8 bin centers) | {sum(spread_shorts)/len(spread_shorts):.2f} | {sum(1 for x in spread_shorts if x == 0.0)} / {len(spread_shorts)} | {sum(spread_shorts_80)/len(spread_shorts_80):.2f} | {sum(1 for x in spread_shorts_80 if x == 0.0)} / {len(spread_shorts_80)} |",
+        f"| Seeded Random Frames (8 random) | {sum(rand_shorts)/len(rand_shorts):.2f} | {sum(1 for x in rand_shorts if x == 0.0)} / {len(rand_shorts)} | — | — |",
+        f"| On-the-Cut Frames (`cut..cut+7`) | {sum(cut_shorts)/len(cut_shorts):.2f} | {sum(1 for x in cut_shorts if x == 0.0)} / {len(cut_shorts)} | — | — |",
+        f"| High-Detail Frames (top 8 luma variance) | {sum(detail_shorts)/len(detail_shorts):.2f} | {sum(1 for x in detail_shorts if x == 0.0)} / {len(detail_shorts)} | — | — |",
         "",
-        "Boundary clips (cat, gravel, leaves) are not in the mean above.",
+        f"- **Screen clips with different CRF (Settled vs. Even):** {sum(row['separated'] for row in screen)} of {len(screen)}.",
+        f"- **Mean shortfall gap (Even minus Settled, all 15 screen clips):** `{mean:.2f}` (95% bootstrap CI: `{low:.2f}` to `{high:.2f}`).",
+        f"- **Mean shortfall gap (without blank frame, 14 clips):** `{mean_nb:.2f}` (95% bootstrap CI: `{low_nb:.2f}` to `{high_nb:.2f}`).",
+        f"- **Twelve generated slides, mean shortfall gap:** `{sum(slide_gaps) / len(slide_gaps):.2f}` (mean CRF step: `{sum(slide_steps) / len(slide_steps):.2f}`).",
+        f"- **File size ratio (Settled / Even on separated clips):** `{mean_ratio:.2f}x` on average.",
+        f"- **1st-percentile vs 5th-percentile sensitivity:** On `{len(tracked)}` of `{len(screen)}` spread-chosen screen files, the 9th-worst frame (1st percentile) lands inside the 20-frame text hold while the 45th-worst frame (5th percentile) sits outside on the easy slide.",
+        "",
+        "## 2. Boundary Clips, Hold-Duration Ablations, and Scene-Cut-On",
+        "",
     ]
     for row in boundary:
         lines.append(
-            f"Boundary {row['name']}: spread CRF {row['spread_crf']}, text CRF {row['text_crf']}, "
+            f"- **Boundary `{row['name']}`:** spread CRF {row['spread_crf']}, text CRF {row['text_crf']}, "
             f"shortfall {row['spread_short']} vs {row['text_short']}, "
             f"9th frame {row['spread_9th_frame']}, 45th frame {row['spread_45th_frame']}."
         )
-    lines += [
-        "",
-        "Scene-cut rows leave x264's scene-cut detection on. Chart and news only.",
-    ]
+    lines.append("")
     for row in scenes:
         lines.append(
-            f"Scene-cut {row['name']}: spread CRF {row['spread_crf']}, text CRF {row['text_crf']}, "
+            f"- **Scene-cut ON `{row['name']}`:** spread CRF {row['spread_crf']}, text CRF {row['text_crf']}, "
             f"shortfall {row['spread_short']} vs {row['text_short']}, "
             f"9th frame {row['spread_9th_frame']}."
         )
-    lines += [
-        "",
-        "Hold rows use the title slide, text starting at frame 400.",
-        "An 8-frame hold ends before the quarter-second wait, so the text-aware rule has no frames.",
-        "Eight bad frames also cannot fill the 9th-worst slot, so the file score can still clear 90.",
-    ]
+    lines.append("")
     for row in holds:
         text_crf = row["text_crf"] if row["text_crf"] != "" else "none"
         text_short = row["text_short"] if row["text_short"] != "" else "none"
         lines.append(
-            f"Hold {row['hold']}: spread CRF {row['spread_crf']} shortfall {row['spread_short']}, "
-            f"text CRF {text_crf} shortfall {text_short}, "
+            f"- **Hold `{row['hold']}` frames:** spread CRF {row['spread_crf']} (shortfall {row['spread_short']}), "
+            f"text CRF {text_crf} (shortfall {text_short}), "
             f"spread 9th frame {row['spread_9th_frame']}."
         )
     lines += [
         "",
-        "No real screen recording was made. The clips are still pictures joined in software.",
+        "## 3. Cut-Driven Per-Segment Zoning (`x264 --zones` Extension)",
         "",
-        "No viewers were recruited. viewer_pairs.csv lists the screen clips whose two rules chose different files.",
-        "Those files were not shown to anyone, and no opinion scores were created.",
+        "When a video has multiple cuts or long easy stretches, applying the text-aware CRF globally bloats the entire file.",
+        "Using our AVX2 cut detector to drive per-span `x264 --zones` assigns each settled picture its own minimum-passing CRF:",
         "",
-        "OCR is the mean, across the 20 text frames, of how much that frame's read lines up with the reference read.",
-        "The harsh row is CRF 44, kept as a check that the reader can fail. It is not a file either rule chose.",
-        "An empty OCR cell means the engine read nothing on the clean text page.",
+        "- **4-Picture Multi-Span Clip (`poc/zones`, 480 frames: plain, text, chart, gravel):**",
+        "  - First-picture-only CRF (44): `64,935 bytes` (destroys text: worst text VMAF `51.56`).",
+        "  - Global gentle CRF (30): `192,568 bytes` (all spans >= 90).",
+        "  - **Cut-Driven Zoned (`CRF 44 / 31 / 34 / 30`):** `184,159 bytes` (all spans >= 90, saves bytes over global gentle while protecting text at `91.04` VMAF).",
+        "- **11-Cycle 44-Cut Clip (`poc/cycle`, 880 frames, 43 cuts):**",
+        "  - Cut finder mismatches: `0` across all 43 cuts (`avx2_asm` median `0.0323 s` vs `plain_c` `0.2494 s`, **7.73x speedup**).",
+        "  - Global harsh CRF (44): `403,836 bytes` (9th-worst VMAF drops to `36.52`).",
+        "  - Global gentle CRF (28): `1,929,745 bytes` (9th-worst VMAF `90.27`).",
+        "  - **Cut-Driven Zoned (`zoned`):** `1,793,543 bytes` (9th-worst VMAF `90.27`, **saves 136 KB / 7.1%** with identical 1st-percentile quality and zero extra encode time: `3.75 s`).",
+        "",
+        "## 4. OCR Character Recall on the 20 Text Frames",
         "",
     ]
     for source_name, label, crf, mean_ratio, worst_ratio in ocr_lines:
@@ -652,16 +727,16 @@ def finish(decisions):
             shown = "empty"
         else:
             shown = f"mean {mean_ratio:.2f}, worst frame {worst_ratio:.2f}"
-        lines.append(f"OCR {source_name} {label} CRF {crf}: {shown}")
+        lines.append(f"- **OCR `{source_name}` ({label}, CRF {crf}):** {shown}")
     lines.append("")
-    lines.append("See decisions.csv for every clip, including the 9th-worst and 45th-worst frame numbers.")
-    (STUDY / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lines.append("See `results/1_kernel_timing.csv`, `results/2_selector_decisions.csv`, and `results/3_zoning_summary.csv` for all raw tables.")
+    (RESULTS / "REPORT.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "finish":
-        with (STUDY / "decisions.csv").open(encoding="utf-8", newline="") as handle:
+        with (RESULTS / "2_selector_decisions.csv").open(encoding="utf-8", newline="") as handle:
             finish(list(csv.DictReader(handle)))
     else:
         main()

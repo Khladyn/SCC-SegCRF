@@ -1,8 +1,0 @@
-Each settled picture keeps its own strength. A picture under 90 is eased one step and the file is encoded again.
-Steps: 44, 40, 36, 32, 28, 24, 20, 16.
-Quiet pairs: 97.7%. Pictures sampled: 72.
-Final strengths: CRF 16 on 7 pictures, CRF 20 on 3 pictures, CRF 24 on 11 pictures, CRF 28 on 46 pictures, CRF 32 on 5 pictures
-Adapted file (adapt3): 5279137 bytes.
-One strength CRF 28: 3070149 bytes.
-Settled samples still under 90: 7 of 72.
-109th-worst 84.78 at frame 1921.
