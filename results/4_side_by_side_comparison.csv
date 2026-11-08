@@ -1,0 +1,6 @@
+selector,poc_pass_90,poc_missing_rungs,poc_mean_shortfall_90,poc_mean_kb,poc_mean_crf,paper_pass_90,paper_mean_shortfall_90,paper_mean_kb,paper_mean_crf
+1. Settled (cut+8..cut+15) [Ours],12 / 12,0,0.00,221.9,31.2,15 / 15,0.00,128.7,29.1
+2. Evenly Spread (8 bin centers),0 / 12,0,10.32,176.0,36.8,0 / 15,12.22,97.2,35.6
+3. Random (8 seeded frames),1 / 12,0,9.00,180.8,36.2,2 / 15,10.79,97.2,34.7
+4. On-the-Cut (cut..cut+7),9 / 12,3,0.00,222.2,31.1,15 / 15,0.00,128.7,29.1
+5. High-Detail (luma variance),2 / 12,2,10.13,179.6,36.4,15 / 15,0.00,128.7,29.1
