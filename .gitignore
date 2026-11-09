@@ -22,3 +22,4 @@ paper.*
 *.pdf
 *.html
 src/build_paper_doc.py
+src/build_qomex_pdf.py
