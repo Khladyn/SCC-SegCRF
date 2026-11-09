@@ -3,7 +3,7 @@
 Runs both repositories' approaches on the EXACT SAME 18 1920x1080 900-frame clips:
   1. Baseline (`Evenly Spread`, 8 bin centers / `libvmaf:n_subsample=112`)
   2. Old Repo (`img-proof-of-concept`: Single-Cut Settled Global CRF)
-  3. Overhauled Repo (`CSC612M-Paper`: Multi-Cut Settled Per-Segment `x264 --zones`)
+  3. Overhauled Repo (`SCC-SegCRF`: Multi-Cut Settled Per-Segment `x264 --zones`)
 
 If `data/clips_1080p/zoned_1080p_summary.csv` does not yet exist (or `--rebuild` is passed),
 encodes all 18 clips with `x264 --zones` and scores all 900 frames of each clip with `libvmaf`.
